@@ -1,0 +1,41 @@
+#!/bin/bash
+# Creates apps/<name>/ from the template and generates app.vars
+set -euo pipefail
+
+_SCRIPTPATH="$(dirname -- "$(realpath "${BASH_SOURCE[0]}")")"
+WINE_ROOT="$(dirname -- "$_SCRIPTPATH")"
+RUNTIME="${WINE_ROOT}/.runtime"
+# shellcheck source=../.runtime/colors.sh
+source "${RUNTIME}/colors.sh"
+# shellcheck source=../.runtime/messages.sh
+source "${RUNTIME}/messages.sh"
+
+APP="${1:?Usage: scaffold-app <app> [APP_EXE]}"
+APP_EXE="${2:-}"
+WINE_ROOT="$(dirname -- "$_SCRIPTPATH")"
+APP_DIR="${WINE_ROOT}/apps/${APP}"
+TEMPLATE="${WINE_ROOT}/apps/_template"
+
+[ -d "$TEMPLATE" ] || {
+    err_msg "Template missing: $TEMPLATE" $LINENO "${BASH_SOURCE[0]}"
+    exit 1
+}
+
+if [ -d "$APP_DIR" ] && [ -f "${APP_DIR}/app.vars" ]; then
+    warn_msg "App '${APP}' already exists (${APP_DIR}/app.vars)" $LINENO "${BASH_SOURCE[0]}"
+    exit 0
+fi
+
+mkdir -p "${APP_DIR}/installers"
+touch "${APP_DIR}/installers/.gitkeep"
+
+sed -e "s/__APP__/${APP}/g" \
+    "${TEMPLATE}/app.vars" > "${APP_DIR}/app.vars"
+
+if [ -n "$APP_EXE" ]; then
+    sed -i "s|^APP_EXE=.*|APP_EXE='${APP_EXE}'|" "${APP_DIR}/app.vars"
+fi
+
+info_msg "Application created in ${WHITE}${APP_DIR}${NC}" $LINENO "${BASH_SOURCE[0]}"
+echo -e "      APP_NAME=${WHITE}${APP}${NC} in ${APP_DIR}/app.vars"
+[ -z "$APP_EXE" ] && echo -e "      Edit APP_EXE in ${APP_DIR}/app.vars once you know the executable path."

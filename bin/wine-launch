@@ -1,0 +1,190 @@
+#!/bin/bash
+# Runs a Windows app (specialized Docker image) as a Linux command.
+# Usage: wine-launch <app> [options...]   or   ~/.local/bin/<app> [options...]
+set -euo pipefail
+
+_SCRIPTPATH="$(dirname -- "$(realpath "${BASH_SOURCE[0]}")")"
+WINE_ROOT="$(dirname -- "$_SCRIPTPATH")"
+RUNTIME="${WINE_ROOT}/.runtime/functions.sh"
+
+# shellcheck source=../.runtime/functions.sh
+source "$RUNTIME"
+
+if [[ "$(basename "$0")" == "wine-launch" ]]; then
+    APP="${1:?usage: wine-launch <app> [args...]}"
+    shift
+else
+    APP="$(basename "$0")"
+fi
+
+APP_VARS="${WINE_ROOT}/apps/${APP}/app.vars"
+[ -f "$APP_VARS" ] || {
+    echo "ERROR: app '${APP}' not found (${APP_VARS})" >&2
+    echo "Apps:" >&2
+    find "${WINE_ROOT}/apps" -mindepth 1 -maxdepth 1 -type d ! -name '_*' -printf '  %f\n' 2>/dev/null || true
+    exit 1
+}
+
+# shellcheck source=/dev/null
+source "$APP_VARS"
+
+: "${APP_IMAGE:=${DOCKER_IMAGE:-wine-base}}"
+: "${APP_EXE:?APP_EXE missing in app.vars}"
+: "${WINE_GUI:=1}"
+: "${WINE_AUTO_INIT:=1}"
+: "${USER_NAME:=wine}"
+: "${RUN_MODE:=run}"
+: "${CONTAINER_NAME:=wine-app-${APP}}"
+
+# WINE_DATA_DIR — where the active Wine prefix comes from at runtime:
+#   @image            → use prefix baked into APP_IMAGE (no bind mount)
+#   @app              → apps/<APP>/wine-prefix/ under project root
+#   relative path     → resolved from project root
+#   absolute path     → used as-is
+#   (unset)           → apps/<APP>/wine-prefix/ if valid, else ~/.local/share/wine-docker/<APP>/
+USE_IMAGE_PREFIX=0
+if [ "${WINE_DATA_DIR:-}" = "@image" ]; then
+    USE_IMAGE_PREFIX=1
+elif [ -z "${WINE_DATA_DIR:-}" ]; then
+    if [ -f "${WINE_ROOT}/apps/${APP}/wine-prefix/drive_c/windows/syswow64/kernel32.dll" ]; then
+        WINE_DATA_DIR="${WINE_ROOT}/apps/${APP}/wine-prefix"
+    else
+        WINE_DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/wine-docker/${APP}"
+    fi
+elif [ "${WINE_DATA_DIR}" = "@app" ]; then
+    WINE_DATA_DIR="${WINE_ROOT}/apps/${APP}/wine-prefix"
+elif [[ "${WINE_DATA_DIR}" != /* ]]; then
+    WINE_DATA_DIR="${WINE_ROOT}/${WINE_DATA_DIR#./}"
+fi
+
+if [ "${USE_IMAGE_PREFIX}" = "0" ]; then
+    mkdir -p "${WINE_DATA_DIR}"
+
+    prefix_host_path_from_exe() {
+        local win_path="${1//\\//}"
+        win_path="${win_path#C:}"
+        win_path="${win_path#/}"
+        echo "${WINE_DATA_DIR}/drive_c/${win_path}"
+    }
+
+    if [ ! -f "${WINE_DATA_DIR}/drive_c/windows/syswow64/kernel32.dll" ]; then
+        echo "ERROR: Wine prefix missing or empty at ${WINE_DATA_DIR}" >&2
+        if [ -d "${WINE_ROOT}/apps/${APP}/wine-prefix/drive_c" ]; then
+            echo "  Restore from build copy:" >&2
+            echo "  rsync -a --delete ${WINE_ROOT}/apps/${APP}/wine-prefix/ ${WINE_DATA_DIR}/" >&2
+        else
+            echo "  Build first: make app-from-prefix APP=${APP}" >&2
+        fi
+        exit 1
+    fi
+
+    _app_exe_host="$(prefix_host_path_from_exe "${APP_EXE}")"
+    if [ ! -f "${_app_exe_host}" ]; then
+        echo "ERROR: APP_EXE not found in prefix: ${APP_EXE}" >&2
+        echo "  Expected host path: ${_app_exe_host}" >&2
+        if [ -d "${WINE_ROOT}/apps/${APP}/wine-prefix/drive_c" ]; then
+            echo "  rsync -a --delete ${WINE_ROOT}/apps/${APP}/wine-prefix/ ${WINE_DATA_DIR}/" >&2
+        fi
+        exit 1
+    fi
+    unset _app_exe_host prefix_host_path_from_exe
+fi
+
+if ! docker image inspect "${APP_IMAGE}" &>/dev/null; then
+    echo "ERROR: image '${APP_IMAGE}' not found." >&2
+    echo "Build: cd ${WINE_ROOT} && make app APP=${APP}" >&2
+    exit 1
+fi
+
+setup_x11() {
+    [ "${WINE_GUI}" = "1" ] || return 0
+    [ -n "${DISPLAY:-}" ] || {
+        echo "ERROR: DISPLAY is not set." >&2
+        exit 1
+    }
+    local stamp="${XDG_CACHE_HOME:-$HOME/.cache}/wine-docker/x11-ok"
+    if [ ! -f "$stamp" ] || [ "$(($(date +%s) - $(stat -c %Y "$stamp" 2>/dev/null || echo 0)))" -gt 3600 ]; then
+        xhost +local:docker 2>/dev/null || true
+        mkdir -p "$(dirname "$stamp")"
+        touch "$stamp"
+    fi
+}
+
+add_extra_mounts() {
+    local -n _cmd=$1
+    [ -z "${EXTRA_MOUNTS:-}" ] && return 0
+    local m host
+    for m in ${EXTRA_MOUNTS}; do
+        host="${m%%:*}"
+        mkdir -p "$host" 2>/dev/null || true
+        _cmd+=(-v "$m")
+    done
+}
+
+append_run_user_flags() {
+    local -n _cmd=$1
+    local flag
+    while IFS= read -r flag; do _cmd+=("$flag"); done < <(container_run_user_flags)
+}
+
+add_wine_prefix_mount() {
+    [ "${USE_IMAGE_PREFIX}" = "1" ] && return 0
+    container_add_bind "$1" "${WINE_DATA_DIR}" "/home/${USER_NAME}/.wine"
+}
+
+# --- exec mode: long-lived container + docker exec ---
+if [ "${RUN_MODE}" = "exec" ]; then
+    if ! docker ps -aq -f "name=^${CONTAINER_NAME}$" | grep -q .; then
+        setup_x11
+        local_run=(docker run -d --name "${CONTAINER_NAME}")
+        append_run_user_flags local_run
+        [ -n "${EXTRA_DOCKER_ARGS:-}" ] && local_run+=(${EXTRA_DOCKER_ARGS})
+        add_extra_mounts local_run
+        [ "${WINE_GUI}" = "1" ] && container_add_x11_flags local_run
+        [ -f "${HOME}/.Xauthority" ] && \
+            local_run+=(-v "${HOME}/.Xauthority:/home/${USER_NAME}/.Xauthority:ro")
+        add_wine_prefix_mount local_run
+        local_run+=(
+            -e WINEPREFIX="/home/${USER_NAME}/.wine"
+            -e WINE_AUTO_INIT="${WINE_AUTO_INIT}"
+            "${APP_IMAGE}"
+            sleep infinity
+        )
+        "${local_run[@]}"
+    fi
+    exec docker exec -i \
+        ${WINE_GUI:+ -e DISPLAY="${DISPLAY}"} \
+        -e WINEPREFIX="/home/${USER_NAME}/.wine" \
+        --workdir "${APP_WORKDIR:-/home/${USER_NAME}}" \
+        --user "${USER_NAME}" \
+        "${CONTAINER_NAME}" \
+        wine "${APP_EXE}" "$@"
+fi
+
+# --- run mode: one container per invocation (--rm) ---
+setup_x11
+run_cmd=(docker run --rm)
+append_run_user_flags run_cmd
+[ -t 0 ] && [ -t 1 ] && run_cmd+=(-it) || run_cmd+=(-i)
+
+run_cmd+=(--hostname "${CONTAINER_NAME}")
+add_wine_prefix_mount run_cmd
+run_cmd+=(
+    -e WINEPREFIX="/home/${USER_NAME}/.wine"
+    -e WINE_AUTO_INIT="${WINE_AUTO_INIT}"
+    -e WINEDEBUG="${WINEDEBUG:--all}"
+)
+
+[ -n "${APP_WORKDIR:-}" ] && run_cmd+=(--workdir "${APP_WORKDIR}")
+add_extra_mounts run_cmd
+
+if [ "${WINE_GUI}" = "1" ]; then
+    container_add_x11_flags run_cmd
+    [ -f "${HOME}/.Xauthority" ] && \
+        run_cmd+=(-v "${HOME}/.Xauthority:/home/${USER_NAME}/.Xauthority:ro")
+fi
+
+[ -n "${EXTRA_DOCKER_ARGS:-}" ] && run_cmd+=(${EXTRA_DOCKER_ARGS})
+
+run_cmd+=("${APP_IMAGE}" wine "${APP_EXE}" "$@")
+exec "${run_cmd[@]}"

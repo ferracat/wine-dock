@@ -1,0 +1,11 @@
+Wine Mono is not vendored in this repository.
+
+At `make image` build time, Dockerfile downloads the official MSI from:
+  https://github.com/wine-mono/wine-mono/releases
+
+Default version: 10.1.0 (build-arg WINE_MONO_VERSION in Dockerfile).
+Override example:
+  docker build --build-arg WINE_MONO_VERSION=11.0.0 -t wine-base .
+
+License: COPYING in this directory (from upstream wine-mono/wine-mono).
+Source tarballs: same GitHub releases page (wine-mono-*-src.tar.xz).

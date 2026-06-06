@@ -1,0 +1,21 @@
+#!/bin/bash
+# Resolve INSTALL_ARGS: explicit argument or auto by installer extension.
+# Usage: resolve-install-args <installer> [explicit_args]
+set -euo pipefail
+
+installer="${1:?}"
+explicit="${2:-}"
+
+if [ -n "$explicit" ]; then
+    printf '%s' "$explicit"
+    exit 0
+fi
+
+case "${installer##*.}" in
+    msi|MSI)  printf '%s' '/quiet' ;;
+    exe|EXE)  printf '%s' '/S' ;;
+    *)
+        # No default args — interactive installer or unknown flags
+        exit 0
+        ;;
+esac

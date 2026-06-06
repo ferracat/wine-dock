@@ -1,0 +1,104 @@
+#!/bin/bash
+# Installs a freedesktop .desktop launcher for a wine-docker app.
+# Usage: install-desktop <app> [applications_dir]
+set -euo pipefail
+
+_SCRIPTPATH="$(dirname -- "$(realpath "${BASH_SOURCE[0]}")")"
+WINE_ROOT="$(dirname -- "$_SCRIPTPATH")"
+
+# shellcheck source=../.runtime/colors.sh
+source "$WINE_ROOT/.runtime/colors.sh"
+# shellcheck source=../.runtime/messages.sh
+source "$WINE_ROOT/.runtime/messages.sh"
+
+APP="${1:?usage: install-desktop <app> [applications_dir]}"
+APPLICATIONS_DIR="${2:-${HOME}/.local/share/applications}"
+INSTALL_BIN="${INSTALL_BIN:-${HOME}/.local/bin}"
+LAUNCHER="${WINE_ROOT}/bin/wine-launch"
+APP_VARS="${WINE_ROOT}/apps/${APP}/app.vars"
+
+[ -f "$APP_VARS" ] || {
+    err_msg "App '${APP}' does not exist at apps/${APP}/" $LINENO "${BASH_SOURCE[0]}"
+    exit 1
+}
+
+# shellcheck source=/dev/null
+source "$APP_VARS"
+
+: "${APP_NAME:=${APP}}"
+: "${APP_DISPLAY_NAME:=${APP_NAME}}"
+
+DESKTOP_ID="wine-docker-${APP}"
+DESKTOP_FILE="${APPLICATIONS_DIR}/${DESKTOP_ID}.desktop"
+ICON_NAME="wine-docker-${APP}"
+ICON_DIR="${HOME}/.local/share/icons/hicolor/256x256/apps"
+ICON_TARGET="${ICON_DIR}/${ICON_NAME}.png"
+
+# Prefer ~/.local/bin/<app> if installed; else wine-launch directly.
+if [ -x "${INSTALL_BIN}/${APP}" ]; then
+    EXEC_PATH="${INSTALL_BIN}/${APP}"
+else
+    EXEC_PATH="${LAUNCHER} ${APP}"
+fi
+
+resolve_icon_source() {
+    local candidate icon_var="${APP_ICON:-}"
+
+    if [ -n "$icon_var" ]; then
+        case "$icon_var" in
+            /*) candidate="$icon_var" ;;
+            @app/*) candidate="${WINE_ROOT}/apps/${APP}/${icon_var#@app/}" ;;
+            *) candidate="${WINE_ROOT}/${icon_var#./}" ;;
+        esac
+        [ -f "$candidate" ] && { echo "$candidate"; return 0; }
+    fi
+
+    for candidate in \
+        "${WINE_ROOT}/apps/${APP}/icon.png" \
+        "${WINE_ROOT}/apps/${APP}/icon.svg" \
+        "${WINE_ROOT}/apps/${APP}/icons/icon.png"; do
+        [ -f "$candidate" ] && { echo "$candidate"; return 0; }
+    done
+
+    return 1
+}
+
+ICON_LINE=""
+if icon_src="$(resolve_icon_source)"; then
+    mkdir -p "$ICON_DIR"
+    case "$icon_src" in
+        *.svg)
+            ICON_TARGET="${ICON_DIR}/${ICON_NAME}.svg"
+            cp -f "$icon_src" "$ICON_TARGET"
+            ;;
+        *)
+            cp -f "$icon_src" "$ICON_TARGET"
+            ;;
+    esac
+    ICON_LINE="Icon=${ICON_NAME}"
+fi
+
+CATEGORIES="${APP_CATEGORIES:-Utility;}"  # default quoted; use "Audio;Music;" in app.vars
+mkdir -p "$APPLICATIONS_DIR"
+
+{
+    echo "[Desktop Entry]"
+    echo "Type=Application"
+    echo "Name=${APP_DISPLAY_NAME}"
+    echo "Comment=Windows app via Wine (Docker)"
+    echo "Exec=${EXEC_PATH}"
+    echo "Terminal=false"
+    echo "StartupNotify=true"
+    echo "Categories=${CATEGORIES}"
+    [ -n "$ICON_LINE" ] && echo "$ICON_LINE"
+} > "$DESKTOP_FILE"
+
+chmod 644 "$DESKTOP_FILE"
+
+if command -v update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database "$APPLICATIONS_DIR" 2>/dev/null || true
+fi
+
+echo "Desktop entry installed: ${DESKTOP_FILE}"
+[ -n "$ICON_LINE" ] && echo "Icon installed: ${ICON_TARGET}"
+echo "Search the app menu for: ${APP_DISPLAY_NAME}"

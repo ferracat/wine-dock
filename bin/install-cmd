@@ -1,0 +1,36 @@
+#!/bin/bash
+# Installs a PATH command that invokes wine-launch for the given app.
+# Usage: install-cmd <app> [install_dir]
+set -euo pipefail
+
+_SCRIPTPATH="$(dirname -- "$(realpath "${BASH_SOURCE[0]}")")"
+WINE_ROOT="$(dirname -- "$_SCRIPTPATH")"
+
+# shellcheck source=../.runtime/colors.sh
+source "$WINE_ROOT/.runtime/colors.sh"
+# shellcheck source=../.runtime/messages.sh
+source "$WINE_ROOT/.runtime/messages.sh"
+
+APP="${1:?usage: install-cmd <app> [install_dir]}"
+INSTALL_DIR="${2:-${HOME}/.local/bin}"
+_SCRIPTPATH="$(dirname -- "$(realpath "${BASH_SOURCE[0]}")")"
+WINE_ROOT="$(dirname -- "$_SCRIPTPATH")"
+LAUNCHER="${WINE_ROOT}/bin/wine-launch"
+
+[ -f "${WINE_ROOT}/apps/${APP}/app.vars" ] || {
+    err_msg "App '${APP}' does not exist at apps/${APP}/" $LINENO "${BASH_SOURCE[0]}"
+    exit 1
+}
+
+mkdir -p "${INSTALL_DIR}"
+TARGET="${INSTALL_DIR}/${APP}"
+
+cat > "${TARGET}" <<EOF
+#!/bin/bash
+# Linux command that runs Windows app '${APP}' via Docker
+exec "${LAUNCHER}" "${APP}" "\$@"
+EOF
+chmod +x "${TARGET}"
+
+echo "Command installed: ${TARGET}"
+echo "Ensure ${INSTALL_DIR} is on your PATH."

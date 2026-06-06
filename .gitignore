@@ -1,0 +1,12 @@
+.wine-local/
+sources/*.7z.*
+sources/*.msi
+sources/dlls/*.dll
+!sources/dlls/.gitkeep
+apps/*/data/
+apps/*/installers/*
+!apps/*/installers/.gitkeep
+apps/*/wine-prefix/
+
+# Local-only apps (vendor-specific; not shipped in this repo)
+apps/myapp/

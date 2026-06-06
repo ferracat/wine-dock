@@ -1,0 +1,45 @@
+# Perfil completo: Ubuntu jammy + WineHQ + i386 + winetricks (~2.5GB)
+# Uso: make image-full
+FROM ubuntu:22.04
+
+ARG UBUNTU_CODENAME=jammy
+ARG TZ=Europe/Lisbon
+ARG USER_NAME=wine
+ARG UID=1000
+ARG GID=1000
+
+ENV TZ=${TZ}
+ENV DEBIAN_FRONTEND=noninteractive
+ENV WINEARCH=win64
+ENV WINEDEBUG=-all
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates wget gnupg unzip cabextract p7zip-full xvfb \
+    && dpkg --add-architecture i386 \
+    && mkdir -pm755 /etc/apt/keyrings \
+    && wget -qO /etc/apt/keyrings/winehq-archive.key https://dl.winehq.org/wine-builds/winehq.key \
+    && wget -qNP /etc/apt/sources.list.d/ \
+        https://dl.winehq.org/wine-builds/ubuntu/dists/${UBUNTU_CODENAME}/winehq-${UBUNTU_CODENAME}.sources \
+    && apt-get update \
+    && apt-get install -y --install-recommends winehq-stable winetricks \
+    && apt-get purge -y wget gnupg \
+    && apt-get autoremove -y --purge \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN groupadd -g ${GID} ${USER_NAME} \
+    && useradd -m -s /bin/bash -u ${UID} -g ${GID} ${USER_NAME} \
+    && mkdir -p /home/${USER_NAME}/installers /home/${USER_NAME}/data /home/${USER_NAME}/.wine \
+    && chown -R ${USER_NAME}:${USER_NAME} /home/${USER_NAME}
+
+ENV WINEPREFIX=/home/${USER_NAME}/.wine
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+USER ${USER_NAME}
+WORKDIR /home/${USER_NAME}
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["sleep", "infinity"]
