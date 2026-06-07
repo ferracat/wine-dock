@@ -226,7 +226,7 @@ wine-dock/
   apps/
     Dockerfile, install.sh          # generic silent install build
     Dockerfile.prefix               # build from apps/<app>/wine-prefix/
-    _template/                      # scaffold for new apps
+    _template/                      # app.vars scaffold (make app-init; no Dockerfile)
     example/                          # sample app (Notepad demo)
       app.vars
     <your-app>/
@@ -292,6 +292,10 @@ License text: `sources/wine-mono/COPYING` (MIT / LGPL / MS-PL mix; see upstream 
 **tini** v0.19.0 — not committed to git. `make image` downloads the binary from
 [krallin/tini releases](https://github.com/krallin/tini/releases) (container PID 1 init).
 [MIT License](https://github.com/krallin/tini/blob/v0.19.0/LICENSE).
+
+**eza** v0.23.4 — not committed to git. `make image` downloads the binary from
+[eza releases](https://github.com/eza-community/eza/releases) (dev shell convenience).
+[MIT License](https://github.com/eza-community/eza/blob/main/LICENCE).
 
 **`sources/dlls/*.dll`** — optional vendor DLLs (e.g. `msvbvm60.dll`); **not redistributed**
 in this repo (gitignored). Drop any needed `.dll` files into `sources/dlls/` before `make image`;

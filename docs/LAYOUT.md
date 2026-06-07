@@ -51,7 +51,7 @@ The leading dot on `.runtime` signals “internal plumbing”, not the main prod
 | `apps/Dockerfile` + `install.sh` | Generic image build from installers (`make app`) |
 | `apps/Dockerfile.prefix` | Bake `apps/<app>/wine-prefix/` into an image (`make app-from-prefix`) |
 | `apps/<app>/app.vars` | Per-app config: image name, prefix mode, `APP_EXE`, desktop metadata |
-| `apps/_template/` | Scaffold for `make app-init` (`app.vars`, optional `Dockerfile`) |
+| `apps/_template/` | Scaffold for `make app-init` (`app.vars` only) |
 | `apps/example/` | Sample app (Notepad); safe to ship in the repo |
 | `apps/<your-app>/` | Your app — **no vendor brands required in examples** |
 

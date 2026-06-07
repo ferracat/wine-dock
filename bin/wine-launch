@@ -34,7 +34,7 @@ source "$APP_VARS"
 : "${WINE_AUTO_INIT:=1}"
 : "${USER_NAME:=wine}"
 : "${RUN_MODE:=run}"
-: "${CONTAINER_NAME:=wine-app-${APP}}"
+: "${CONTAINER_NAME:=wine-app-${APP}-container}"
 
 # WINE_DATA_DIR — where the active Wine prefix comes from at runtime:
 #   @image            → use prefix baked into APP_IMAGE (no bind mount)
@@ -163,7 +163,7 @@ fi
 
 # --- run mode: one container per invocation (--rm) ---
 setup_x11
-run_cmd=(docker run --rm)
+run_cmd=(docker run --rm --name "${CONTAINER_NAME}")
 append_run_user_flags run_cmd
 [ -t 0 ] && [ -t 1 ] && run_cmd+=(-it) || run_cmd+=(-i)
 

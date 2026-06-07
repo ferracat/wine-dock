@@ -2,8 +2,12 @@
 # Apps 32-bit heavy or winetricks: make image-full
 FROM debian:bookworm-slim
 
+# contrib: winetricks etc. — not installed by default; available via apt after make image
+RUN sed -i 's/Components: main/Components: main contrib/' /etc/apt/sources.list.d/debian.sources
+
 ARG DISTRO_CODENAME=bookworm
 ARG WINE_MONO_VERSION=10.1.0
+ARG EZA_VERSION=0.23.4
 
 # Set timezone to Lisbon time (WET) and upgrade
 ARG TZ=Europe/Lisbon
@@ -29,7 +33,9 @@ RUN dpkg --add-architecture i386 && apt-get update && apt-get install -y --no-in
         cabextract \
         gnupg \
         sudo \
+        tar \
         unzip \
+        usbutils \
         wget \
         xauth \
         xvfb \
@@ -56,6 +62,13 @@ RUN groupadd -g $GID $USERNAME \
 RUN wget -qO /sbin/tini https://github.com/krallin/tini/releases/download/v0.19.0/tini-amd64 && \
     chmod +x /sbin/tini
 
+# eza — modern ls for dev shells (MIT; downloaded at build time)
+RUN wget -qO /tmp/eza.tar.gz \
+    "https://github.com/eza-community/eza/releases/download/v${EZA_VERSION}/eza_x86_64-unknown-linux-gnu.tar.gz" \
+    && tar -xzf /tmp/eza.tar.gz -C /usr/local/bin \
+    && chmod 755 /usr/local/bin/eza \
+    && rm /tmp/eza.tar.gz
+
 # Wine Mono license text (MSI downloaded at build time; see sources/wine-mono/README)
 RUN install -d /usr/share/doc/wine-mono
 COPY sources/wine-mono/COPYING /usr/share/doc/wine-mono/COPYING
@@ -69,6 +82,9 @@ USER $USERNAME
 # - Configure Wine to use Windows 10 compatibility mode
 RUN wine wineboot --init && \
     wine winecfg /v win10
+
+# Shortcut in $HOME to the Windows C: drive (follows WINEPREFIX mount at runtime)
+RUN ln -sfn .wine/drive_c
 
 # Create runtime directory for X11
 RUN install -d -m 0700 $XDG_RUNTIME_DIR

@@ -221,12 +221,25 @@ container: ## Create and start container [$(CONTAINER_NAME)]
 	@$(RUN_SCRIPT)
 
 .PHONY: attach
-attach: ## Enter running container [$(CONTAINER_NAME)]
-	@docker exec -it \
-		--workdir /home/$(USER_NAME) \
-		--user $(USER_NAME) \
-		$(CONTAINER_NAME) \
-		bash -lc 'exec bash'
+attach: ## Shell in container: make attach [APP=name] (APP → app container; else dev)
+	@_container="$(CONTAINER_NAME)"; \
+	_user="$(USER_NAME)"; \
+	_workdir="/home/$(USER_NAME)"; \
+	if [ -n "$(APP)" ]; then \
+		_av="$(CURDIR)/apps/$(APP)/app.vars"; \
+		[ -f "$$_av" ] || { echo -e "\033[31mERROR:\033[0m apps/$(APP)/app.vars not found"; exit 1; }; \
+		source "$$_av"; \
+		_container="$${CONTAINER_NAME:-wine-app-$(APP)-container}"; \
+		_user="$${USER_NAME:-wine}"; \
+		_workdir="/home/$$_user"; \
+	fi; \
+	docker ps -q -f "name=^$$_container$$" | grep -q . || { \
+		echo -e "\033[31mERROR:\033[0m container '$$_container' is not running."; \
+		if [ -n "$(APP)" ]; then echo "  Start the app: ./bin/wine-launch $(APP)"; \
+		else echo "  Run: make container"; fi; \
+		exit 1; \
+	}; \
+	docker exec -it --workdir "$$_workdir" --user "$$_user" "$$_container" bash -lc 'exec bash'
 
 .PHONY: winecfg
 winecfg: ## Open winecfg in container (requires graphical support X11)

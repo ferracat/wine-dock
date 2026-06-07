@@ -1,0 +1,12 @@
+# Generic Dockerfile: make app-from-prefix APP=name
+# Expects apps/<APP>/wine-prefix/ (synced from .wine-local/wine-prefix by make).
+ARG BASE_IMAGE=wine-base
+FROM ${BASE_IMAGE}
+
+ARG USER_NAME=wine
+
+USER root
+COPY --chown=${USER_NAME}:${USER_NAME} wine-prefix/ /home/${USER_NAME}/.wine/
+USER ${USER_NAME}
+
+ENV WINEPREFIX=/home/${USER_NAME}/.wine
